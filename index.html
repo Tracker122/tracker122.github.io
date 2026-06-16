@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Fitness Tracker - Track Your Runs & Walks</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <header class="header">
+            <div class="header-content">
+                <h1><i class="fas fa-running"></i> Fitness Tracker</h1>
+                <nav class="nav-tabs">
+                    <button class="nav-btn active" data-tab="tracker">Tracker</button>
+                    <button class="nav-btn" data-tab="dashboard">Dashboard</button>
+                    <button class="nav-btn" data-tab="history">History</button>
+                </nav>
+            </div>
+        </header>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <!-- Tracker Tab -->
+            <section id="tracker" class="tab-content active">
+                <div class="tracker-container">
+                    <!-- Mode Selection -->
+                    <div class="mode-selector">
+                        <button class="mode-btn active" data-mode="run">
+                            <i class="fas fa-running"></i> Running
+                        </button>
+                        <button class="mode-btn" data-mode="walk">
+                            <i class="fas fa-walking"></i> Walking
+                        </button>
+                    </div>
+
+                    <!-- Running Tracker -->
+                    <div id="run-tracker" class="tracker-mode active">
+                        <div class="stats-grid">
+                            <div class="stat-card">
+                                <div class="stat-label">Distance</div>
+                                <div class="stat-value" id="run-distance">0.00</div>
+                                <div class="stat-unit">km</div>
+                            </div>
+                            <div class="stat-card">
+                                <div class="stat-label">Time</div>
+                                <div class="stat-value" id="run-time">00:00:00</div>
+                                <div class="stat-unit">hh:mm:ss</div>
+                            </div>
+                            <div class="stat-card">
+                                <div class="stat-label">Speed</div>
+                                <div class="stat-value" id="run-speed">0.0</div>
+                                <div class="stat-unit">km/h</div>
+                            </div>
+                            <div class="stat-card">
+                                <div class="stat-label">Pace</div>
+                                <div class="stat-value" id="run-pace">--:--</div>
+                                <div class="stat-unit">min/km</div>
+                            </div>
+                            <div class="stat-card">
+                                <div class="stat-label">Calories</div>
+                                <div class="stat-value" id="run-calories">0</div>
+                                <div class="stat-unit">kcal</div>
+                            </div>
+                            <div class="stat-card">
+                                <div class="stat-label">Elevation</div>
+                                <div class="stat-value" id="run-elevation">0</div>
+                                <div class="stat-unit">m</div>
+                            </div>
+                        </div>
+
+                        <!-- Map -->
+                        <div id="run-map" class="map-container"></div>
+
+                        <!-- Controls -->
+                        <div class="controls">
+                            <button id="run-start-btn" class="btn btn-primary">
+                                <i class="fas fa-play"></i> Start Run
+                            </button>
+                            <button id="run-pause-btn" class="btn btn-warning" style="display: none;">
+                                <i class="fas fa-pause"></i> Pause
+                            </button>
+                            <button id="run-resume-btn" class="btn btn-primary" style="display: none;">
+                                <i class="fas fa-play"></i> Resume
+                            </button>
+                            <button id="run-stop-btn" class="btn btn-danger" style="display: none;">
+                                <i class="fas fa-stop"></i> Stop
+                            </button>
+                            <button id="run-save-btn" class="btn btn-success" style="display: none;">
+                                <i class="fas fa-save"></i> Save Run
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Walking Tracker -->
+                    <div id="walk-tracker" class="tracker-mode">
+                        <div class="stats-grid">
+                            <div class="stat-card">
+                                <div class="stat-label">Daily Goal</div>
+                                <div class="stat-value" id="walk-goal">10000</div>
+                                <div class="stat-unit">steps</div>
+                            </div>
+                            <div class="stat-card">
+                                <div class="stat-label">Steps Today</div>
+                                <div class="stat-value" id="walk-steps">0</div>
+                                <div class="stat-unit">steps</div>
+                            </div>
+                            <div class="stat-card">
+                                <div class="stat-label">Progress</div>
+                                <div class="stat-value" id="walk-progress">0</div>
+                                <div class="stat-unit">%</div>
+                            </div>
+                            <div class="stat-card">
+                                <div class="stat-label">Distance</div>
+                                <div class="stat-value" id="walk-distance">0.0</div>
+                                <div class="stat-unit">km</div>
+                            </div>
+                            <div class="stat-card">
+                                <div class="stat-label">Calories</div>
+                                <div class="stat-value" id="walk-calories">0</div>
+                                <div class="stat-unit">kcal</div>
+                            </div>
+                            <div class="stat-card">
+                                <div class="stat-label">Duration</div>
+                                <div class="stat-value" id="walk-time">00:00:00</div>
+                                <div class="stat-unit">hh:mm:ss</div>
+                            </div>
+                        </div>
+
+                        <!-- Progress Bar -->
+                        <div class="progress-container">
+                            <div class="progress-bar">
+                                <div class="progress-fill" id="walk-progress-bar" style="width: 0%"></div>
+                            </div>
+                            <p class="progress-text" id="walk-progress-text">0 / 10000 steps</p>
+                        </div>
+
+                        <!-- Map -->
+                        <div id="walk-map" class="map-container"></div>
+
+                        <!-- Controls -->
+                        <div class="controls">
+                            <button id="walk-start-btn" class="btn btn-primary">
+                                <i class="fas fa-play"></i> Start Walk
+                            </button>
+                            <button id="walk-pause-btn" class="btn btn-warning" style="display: none;">
+                                <i class="fas fa-pause"></i> Pause
+                            </button>
+                            <button id="walk-resume-btn" class="btn btn-primary" style="display: none;">
+                                <i class="fas fa-play"></i> Resume
+                            </button>
+                            <button id="walk-stop-btn" class="btn btn-danger" style="display: none;">
+                                <i class="fas fa-stop"></i> Stop
+                            </button>
+                            <button id="walk-save-btn" class="btn btn-success" style="display: none;">
+                                <i class="fas fa-save"></i> Save Walk
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Dashboard Tab -->
+            <section id="dashboard" class="tab-content">
+                <div class="dashboard-container">
+                    <!-- Stats Overview -->
+                    <div class="stats-overview">
+                        <div class="overview-card">
+                            <h3>Today's Stats</h3>
+                            <div class="overview-grid">
+                                <div class="overview-item">
+                                    <span class="label">Runs</span>
+                                    <span class="value" id="today-runs">0</span>
+                                </div>
+                                <div class="overview-item">
+                                    <span class="label">Walks</span>
+                                    <span class="value" id="today-walks">0</span>
+                                </div>
+                                <div class="overview-item">
+                                    <span class="label">Distance</span>
+                                    <span class="value" id="today-distance">0 km</span>
+                                </div>
+                                <div class="overview-item">
+                                    <span class="label">Calories</span>
+                                    <span class="value" id="today-calories">0 kcal</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="overview-card">
+                            <h3>Streaks & Records</h3>
+                            <div class="overview-grid">
+                                <div class="overview-item">
+                                    <span class="label">Current Streak</span>
+                                    <span class="value" id="current-streak">0</span>
+                                    <span class="unit">days</span>
+                                </div>
+                                <div class="overview-item">
+                                    <span class="label">Best Streak</span>
+                                    <span class="value" id="best-streak">0</span>
+                                    <span class="unit">days</span>
+                                </div>
+                                <div class="overview-item">
+                                    <span class="label">Longest Run</span>
+                                    <span class="value" id="longest-run">0 km</span>
+                                </div>
+                                <div class="overview-item">
+                                    <span class="label">Fastest Pace</span>
+                                    <span class="value" id="fastest-pace">--:--</span>
+                                    <span class="unit">min/km</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Charts -->
+                    <div class="charts-container">
+                        <div class="chart-card">
+                            <h3>Weekly Distance</h3>
+                            <canvas id="distanceChart"></canvas>
+                        </div>
+                        <div class="chart-card">
+                            <h3>Weekly Calories</h3>
+                            <canvas id="caloriesChart"></canvas>
+                        </div>
+                        <div class="chart-card">
+                            <h3>Activity Type Distribution</h3>
+                            <canvas id="activityChart"></canvas>
+                        </div>
+                        <div class="chart-card">
+                            <h3>Weekly Duration</h3>
+                            <canvas id="durationChart"></canvas>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- History Tab -->
+            <section id="history" class="tab-content">
+                <div class="history-container">
+                    <div class="history-controls">
+                        <input type="date" id="history-date-filter" class="date-filter">
+                        <select id="history-type-filter" class="type-filter">
+                            <option value="">All Activities</option>
+                            <option value="run">Runs</option>
+                            <option value="walk">Walks</option>
+                        </select>
+                        <button id="clear-history-btn" class="btn btn-danger">Clear History</button>
+                    </div>
+                    <div id="history-list" class="history-list">
+                        <p class="empty-message">No activities yet. Start tracking to see your history!</p>
+                    </div>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <!-- Scripts -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.9.1/chart.min.js"></script>
+    <script src="app.js"></script>
+</body>
+</html>
