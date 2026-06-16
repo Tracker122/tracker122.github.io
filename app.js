@@ -1,4 +1,4 @@
-// Fitness Tracker App - Core Logic
+// Fitness Tracker App - Core Logic with Enhanced GPS & Map Features
 
 // ==================== State Management ====================
 const state = {
@@ -9,6 +9,7 @@ const state = {
     pausedTime: 0,
     currentRun: {
         coordinates: [],
+        rawCoordinates: [], // Store all GPS points for analysis
         startTime: null,
         distance: 0,
         time: 0,
@@ -18,6 +19,7 @@ const state = {
     },
     currentWalk: {
         coordinates: [],
+        rawCoordinates: [],
         startTime: null,
         distance: 0,
         time: 0,
@@ -33,7 +35,19 @@ const state = {
         run: null,
         walk: null,
     },
+    markers: {
+        run: { current: null, start: null },
+        walk: { current: null, start: null },
+    },
     charts: {},
+    tileLayers: {
+        run: {},
+        walk: {},
+    },
+    currentTileLayer: {
+        run: 'standard',
+        walk: 'standard',
+    },
 };
 
 // ==================== Initialization ====================
@@ -78,25 +92,89 @@ function initializeEventListeners() {
     document.getElementById('history-type-filter').addEventListener('change', updateHistoryDisplay);
     document.getElementById('clear-history-btn').addEventListener('click', clearHistory);
 
+    // Map Layer Controls
+    document.querySelectorAll('.tile-layer-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            switchTileLayer(e.target.dataset.mode, e.target.dataset.layer);
+        });
+    });
+
     // Set today's date as default
     const today = new Date().toISOString().split('T')[0];
     document.getElementById('history-date-filter').value = today;
 }
 
 function initializeMaps() {
-    // Run Map
-    state.maps.run = L.map('run-map').setView([51.505, -0.09], 13);
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        attribution: '© OpenStreetMap contributors',
-        maxZoom: 19,
-    }).addTo(state.maps.run);
+    // Define tile layers
+    const tileLayers = {
+        standard: {
+            url: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+            attribution: '© OpenStreetMap contributors',
+            name: 'Standard',
+        },
+        detailed: {
+            url: 'https://{s}.tile.openstreetmap.de/tiles/osmde/{z}/{x}/{y}.png',
+            attribution: '© OpenStreetMap contributors',
+            name: 'Detailed',
+        },
+        satellite: {
+            url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+            attribution: '© Esri',
+            name: 'Satellite',
+        },
+        terrain: {
+            url: 'https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png',
+            attribution: '© OpenTopoMap contributors',
+            name: 'Terrain',
+        },
+    };
 
-    // Walk Map
-    state.maps.walk = L.map('walk-map').setView([51.505, -0.09], 13);
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        attribution: '© OpenStreetMap contributors',
-        maxZoom: 19,
-    }).addTo(state.maps.walk);
+    // Initialize Run Map
+    state.maps.run = L.map('run-map', {
+        zoom: 16,
+        zoomControl: true,
+    }).setView([51.505, -0.09], 16);
+
+    state.tileLayers.run = {};
+    Object.keys(tileLayers).forEach(key => {
+        const layer = tileLayers[key];
+        state.tileLayers.run[key] = L.tileLayer(layer.url, {
+            attribution: layer.attribution,
+            maxZoom: 19,
+            minZoom: 13,
+        });
+    });
+    state.tileLayers.run.standard.addTo(state.maps.run);
+
+    // Initialize Walk Map
+    state.maps.walk = L.map('walk-map', {
+        zoom: 16,
+        zoomControl: true,
+    }).setView([51.505, -0.09], 16);
+
+    state.tileLayers.walk = {};
+    Object.keys(tileLayers).forEach(key => {
+        const layer = tileLayers[key];
+        state.tileLayers.walk[key] = L.tileLayer(layer.url, {
+            attribution: layer.attribution,
+            maxZoom: 19,
+            minZoom: 13,
+        });
+    });
+    state.tileLayers.walk.standard.addTo(state.maps.walk);
+
+    // Add layer control
+    const runLayers = {};
+    Object.keys(tileLayers).forEach(key => {
+        runLayers[tileLayers[key].name] = state.tileLayers.run[key];
+    });
+    L.control.layers(runLayers).addTo(state.maps.run);
+
+    const walkLayers = {};
+    Object.keys(tileLayers).forEach(key => {
+        walkLayers[tileLayers[key].name] = state.tileLayers.walk[key];
+    });
+    L.control.layers(walkLayers).addTo(state.maps.walk);
 }
 
 // ==================== Tab & Mode Switching ====================
@@ -147,6 +225,47 @@ function switchMode(mode) {
     }, 100);
 }
 
+function switchTileLayer(mode, layer) {
+    // Remove current layer
+    state.maps[mode].removeLayer(state.tileLayers[mode][state.currentTileLayer[mode]]);
+    
+    // Add new layer
+    state.tileLayers[mode][layer].addTo(state.maps[mode]);
+    state.currentTileLayer[mode] = layer;
+}
+
+// ==================== GPS Accuracy Filtering ====================
+const ACCURACY_THRESHOLD = 20; // meters - ignore points with lower accuracy
+const SMOOTHING_FACTOR = 0.7; // For exponential moving average
+
+function isAccurateGPS(accuracy) {
+    return accuracy <= ACCURACY_THRESHOLD;
+}
+
+function smoothRoute(coordinates) {
+    if (coordinates.length < 2) return coordinates;
+
+    const smoothed = [coordinates[0]];
+    
+    for (let i = 1; i < coordinates.length; i++) {
+        const prev = smoothed[smoothed.length - 1];
+        const current = coordinates[i];
+        
+        // Exponential moving average for smoothing
+        const smoothedLat = prev.lat * SMOOTHING_FACTOR + current.lat * (1 - SMOOTHING_FACTOR);
+        const smoothedLng = prev.lng * SMOOTHING_FACTOR + current.lng * (1 - SMOOTHING_FACTOR);
+        
+        smoothed.push({
+            lat: smoothedLat,
+            lng: smoothedLng,
+            alt: current.alt,
+            accuracy: current.accuracy,
+        });
+    }
+    
+    return smoothed;
+}
+
 // ==================== Geolocation & Tracking ====================
 function startRun() {
     if (!navigator.geolocation) {
@@ -156,6 +275,7 @@ function startRun() {
 
     state.currentRun = {
         coordinates: [],
+        rawCoordinates: [],
         startTime: Date.now(),
         distance: 0,
         time: 0,
@@ -168,13 +288,19 @@ function startRun() {
     state.startTime = Date.now();
     state.pausedTime = 0;
 
-    // Request location permission
-    navigator.geolocation.watchPosition(
+    // Request location with high accuracy
+    state.watchId = navigator.geolocation.watchPosition(
         (position) => {
             const { latitude, longitude, altitude, accuracy } = position.coords;
-            const coord = { lat: latitude, lng: longitude, alt: altitude || 0, accuracy };
+            
+            // Filter out inaccurate GPS points
+            if (!isAccurateGPS(accuracy)) {
+                console.log(`GPS point ignored: accuracy ${accuracy}m exceeds threshold of ${ACCURACY_THRESHOLD}m`);
+                return;
+            }
 
-            state.currentRun.coordinates.push(coord);
+            const coord = { lat: latitude, lng: longitude, alt: altitude || 0, accuracy };
+            state.currentRun.rawCoordinates.push(coord);
 
             // Update elevation
             if (altitude) {
@@ -183,21 +309,25 @@ function startRun() {
             }
 
             // Calculate distance
-            if (state.currentRun.coordinates.length > 1) {
-                const prev = state.currentRun.coordinates[state.currentRun.coordinates.length - 2];
+            if (state.currentRun.rawCoordinates.length > 1) {
+                const prev = state.currentRun.rawCoordinates[state.currentRun.rawCoordinates.length - 2];
                 const distance = calculateDistance(prev.lat, prev.lng, latitude, longitude);
                 state.currentRun.distance += distance;
             }
 
+            // Smooth the route for display
+            state.currentRun.coordinates = smoothRoute(state.currentRun.rawCoordinates);
+
             updateRunDisplay();
             drawRunRoute();
+            centerMapOnUser('run', latitude, longitude);
         },
         (error) => {
             console.error('Geolocation error:', error);
             alert('Unable to access your location. Please check permissions.');
         },
         {
-            enableHighAccuracy: true,
+            enableHighAccuracy: true, // Use high-accuracy GPS
             timeout: 5000,
             maximumAge: 0,
         }
@@ -220,6 +350,7 @@ function startWalk() {
 
     state.currentWalk = {
         coordinates: [],
+        rawCoordinates: [],
         startTime: Date.now(),
         distance: 0,
         time: 0,
@@ -231,16 +362,22 @@ function startWalk() {
     state.startTime = Date.now();
     state.pausedTime = 0;
 
-    navigator.geolocation.watchPosition(
+    state.watchId = navigator.geolocation.watchPosition(
         (position) => {
-            const { latitude, longitude } = position.coords;
-            const coord = { lat: latitude, lng: longitude };
+            const { latitude, longitude, accuracy } = position.coords;
+            
+            // Filter out inaccurate GPS points
+            if (!isAccurateGPS(accuracy)) {
+                console.log(`GPS point ignored: accuracy ${accuracy}m exceeds threshold of ${ACCURACY_THRESHOLD}m`);
+                return;
+            }
 
-            state.currentWalk.coordinates.push(coord);
+            const coord = { lat: latitude, lng: longitude, accuracy };
+            state.currentWalk.rawCoordinates.push(coord);
 
             // Calculate distance
-            if (state.currentWalk.coordinates.length > 1) {
-                const prev = state.currentWalk.coordinates[state.currentWalk.coordinates.length - 2];
+            if (state.currentWalk.rawCoordinates.length > 1) {
+                const prev = state.currentWalk.rawCoordinates[state.currentWalk.rawCoordinates.length - 2];
                 const distance = calculateDistance(prev.lat, prev.lng, latitude, longitude);
                 state.currentWalk.distance += distance;
 
@@ -248,15 +385,19 @@ function startWalk() {
                 state.currentWalk.steps += Math.round(distance * 1000 / 0.762);
             }
 
+            // Smooth the route for display
+            state.currentWalk.coordinates = smoothRoute(state.currentWalk.rawCoordinates);
+
             updateWalkDisplay();
             drawWalkRoute();
+            centerMapOnUser('walk', latitude, longitude);
         },
         (error) => {
             console.error('Geolocation error:', error);
             alert('Unable to access your location. Please check permissions.');
         },
         {
-            enableHighAccuracy: true,
+            enableHighAccuracy: true, // Use high-accuracy GPS
             timeout: 5000,
             maximumAge: 0,
         }
@@ -318,6 +459,29 @@ function stopTracking() {
         document.getElementById('walk-stop-btn').style.display = 'none';
         document.getElementById('walk-save-btn').style.display = 'flex';
     }
+}
+
+// ==================== Map Centering ====================
+function centerMapOnUser(mode, lat, lng) {
+    const map = state.maps[mode];
+    if (!map) return;
+
+    // Pan to user location
+    map.panTo([lat, lng], { animate: true, duration: 0.5 });
+
+    // Update current position marker
+    if (state.markers[mode].current) {
+        map.removeLayer(state.markers[mode].current);
+    }
+
+    state.markers[mode].current = L.circleMarker([lat, lng], {
+        radius: 8,
+        fillColor: mode === 'run' ? '#ff6b6b' : '#4ecdc4',
+        color: '#fff',
+        weight: 2,
+        opacity: 1,
+        fillOpacity: 0.9,
+    }).addTo(map);
 }
 
 // ==================== Display Updates ====================
@@ -419,17 +583,23 @@ function drawRunRoute() {
         map.removeLayer(state.polylines.run);
     }
 
-    // Create new polyline
+    // Create new polyline with smoothed coordinates
     const latlngs = state.currentRun.coordinates.map(c => [c.lat, c.lng]);
-    state.polylines.run = L.polyline(latlngs, { color: '#ff6b6b', weight: 3, opacity: 0.8 }).addTo(map);
+    state.polylines.run = L.polyline(latlngs, {
+        color: '#ff6b6b',
+        weight: 3,
+        opacity: 0.8,
+        lineCap: 'round',
+        lineJoin: 'round',
+    }).addTo(map);
 
     // Fit map to route
     const bounds = L.latLngBounds(latlngs);
-    map.fitBounds(bounds, { padding: [50, 50] });
+    map.fitBounds(bounds, { padding: [50, 50], maxZoom: 16 });
 
-    // Add start marker
-    if (state.currentRun.coordinates.length === 1) {
-        L.circleMarker([state.currentRun.coordinates[0].lat, state.currentRun.coordinates[0].lng], {
+    // Add start marker if this is the first point
+    if (state.currentRun.coordinates.length === 1 && !state.markers.run.start) {
+        state.markers.run.start = L.circleMarker([state.currentRun.coordinates[0].lat, state.currentRun.coordinates[0].lng], {
             radius: 6,
             fillColor: '#51cf66',
             color: '#fff',
@@ -438,17 +608,6 @@ function drawRunRoute() {
             fillOpacity: 0.8,
         }).addTo(map).bindPopup('Start');
     }
-
-    // Add current position marker
-    const current = state.currentRun.coordinates[state.currentRun.coordinates.length - 1];
-    L.circleMarker([current.lat, current.lng], {
-        radius: 8,
-        fillColor: '#ff6b6b',
-        color: '#fff',
-        weight: 2,
-        opacity: 1,
-        fillOpacity: 0.9,
-    }).addTo(map).bindPopup('Current');
 }
 
 function drawWalkRoute() {
@@ -461,17 +620,23 @@ function drawWalkRoute() {
         map.removeLayer(state.polylines.walk);
     }
 
-    // Create new polyline
+    // Create new polyline with smoothed coordinates
     const latlngs = state.currentWalk.coordinates.map(c => [c.lat, c.lng]);
-    state.polylines.walk = L.polyline(latlngs, { color: '#4ecdc4', weight: 3, opacity: 0.8 }).addTo(map);
+    state.polylines.walk = L.polyline(latlngs, {
+        color: '#4ecdc4',
+        weight: 3,
+        opacity: 0.8,
+        lineCap: 'round',
+        lineJoin: 'round',
+    }).addTo(map);
 
     // Fit map to route
     const bounds = L.latLngBounds(latlngs);
-    map.fitBounds(bounds, { padding: [50, 50] });
+    map.fitBounds(bounds, { padding: [50, 50], maxZoom: 16 });
 
-    // Add start marker
-    if (state.currentWalk.coordinates.length === 1) {
-        L.circleMarker([state.currentWalk.coordinates[0].lat, state.currentWalk.coordinates[0].lng], {
+    // Add start marker if this is the first point
+    if (state.currentWalk.coordinates.length === 1 && !state.markers.walk.start) {
+        state.markers.walk.start = L.circleMarker([state.currentWalk.coordinates[0].lat, state.currentWalk.coordinates[0].lng], {
             radius: 6,
             fillColor: '#51cf66',
             color: '#fff',
@@ -480,17 +645,6 @@ function drawWalkRoute() {
             fillOpacity: 0.8,
         }).addTo(map).bindPopup('Start');
     }
-
-    // Add current position marker
-    const current = state.currentWalk.coordinates[state.currentWalk.coordinates.length - 1];
-    L.circleMarker([current.lat, current.lng], {
-        radius: 8,
-        fillColor: '#4ecdc4',
-        color: '#fff',
-        weight: 2,
-        opacity: 1,
-        fillOpacity: 0.9,
-    }).addTo(map).bindPopup('Current');
 }
 
 // ==================== Storage & History ====================
@@ -520,6 +674,7 @@ function saveActivity(type) {
     if (type === 'run') {
         state.currentRun = {
             coordinates: [],
+            rawCoordinates: [],
             startTime: null,
             distance: 0,
             time: 0,
@@ -541,9 +696,18 @@ function saveActivity(type) {
             state.maps.run.removeLayer(state.polylines.run);
             state.polylines.run = null;
         }
+        if (state.markers.run.start) {
+            state.maps.run.removeLayer(state.markers.run.start);
+            state.markers.run.start = null;
+        }
+        if (state.markers.run.current) {
+            state.maps.run.removeLayer(state.markers.run.current);
+            state.markers.run.current = null;
+        }
     } else {
         state.currentWalk = {
             coordinates: [],
+            rawCoordinates: [],
             startTime: null,
             distance: 0,
             time: 0,
@@ -564,6 +728,14 @@ function saveActivity(type) {
         if (state.polylines.walk) {
             state.maps.walk.removeLayer(state.polylines.walk);
             state.polylines.walk = null;
+        }
+        if (state.markers.walk.start) {
+            state.maps.walk.removeLayer(state.markers.walk.start);
+            state.markers.walk.start = null;
+        }
+        if (state.markers.walk.current) {
+            state.maps.walk.removeLayer(state.markers.walk.current);
+            state.markers.walk.current = null;
         }
     }
 
