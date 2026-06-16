@@ -16,6 +16,8 @@ const state = {
         calories: 0,
         maxElevation: 0,
         minElevation: Infinity,
+        speedReadings: [], // Store last 5 speed readings for moving average
+        currentSpeed: 0, // Current smoothed speed
     },
     currentWalk: {
         coordinates: [],
@@ -25,6 +27,8 @@ const state = {
         time: 0,
         steps: 0,
         calories: 0,
+        speedReadings: [], // Store last 5 speed readings for moving average
+        currentSpeed: 0, // Current smoothed speed
     },
     watchId: null,
     maps: {
@@ -326,6 +330,55 @@ function showMyLocation(mode) {
     );
 }
 
+// ==================== Speed Calculation with Moving Average ====================
+function updateSpeed(mode, deviceSpeed, latitude, longitude) {
+    const current = state[`current${mode.charAt(0).toUpperCase() + mode.slice(1)}`];
+    const rawCoords = current.rawCoordinates;
+    
+    let speed = 0; // km/h
+    
+    // Primary: Use GPS device's built-in speed if available and reliable
+    if (deviceSpeed !== null && deviceSpeed !== undefined && deviceSpeed >= SPEED_FALLBACK_THRESHOLD) {
+        // Convert m/s to km/h
+        speed = deviceSpeed * 3.6;
+    } else if (rawCoords.length >= 2) {
+        // Fallback: Calculate speed from recent GPS points (last 2 points)
+        const prev = rawCoords[rawCoords.length - 2];
+        const current_coord = rawCoords[rawCoords.length - 1];
+        
+        // Calculate distance in km
+        const distance = calculateDistance(prev.lat, prev.lng, latitude, longitude) / 1000;
+        
+        // Estimate time between points (typically 1-2 seconds for high-accuracy GPS)
+        // Use a conservative estimate of 1 second
+        const timeSeconds = 1;
+        const timeHours = timeSeconds / 3600;
+        
+        if (timeHours > 0) {
+            speed = distance / timeHours;
+        }
+    }
+    
+    // Apply stationary threshold - show 0 if speed is below threshold
+    if (speed < STATIONARY_THRESHOLD) {
+        speed = 0;
+    }
+    
+    // Add to moving average
+    current.speedReadings.push(speed);
+    
+    // Keep only the last N readings
+    if (current.speedReadings.length > SPEED_MOVING_AVERAGE_SIZE) {
+        current.speedReadings.shift();
+    }
+    
+    // Calculate moving average
+    const averageSpeed = current.speedReadings.reduce((a, b) => a + b, 0) / current.speedReadings.length;
+    current.currentSpeed = averageSpeed;
+    
+    console.log(`${mode} speed - Device: ${deviceSpeed ? (deviceSpeed * 3.6).toFixed(1) : 'N/A'} km/h, Current: ${speed.toFixed(1)} km/h, Average: ${averageSpeed.toFixed(1)} km/h`);
+}
+
 function reverseGeocode(latitude, longitude, mode) {
     // Using OpenStreetMap Nominatim API (free, no key required)
     const url = `https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}`;
@@ -416,7 +469,7 @@ function startRun() {
     // Request location with high accuracy
     state.watchId = navigator.geolocation.watchPosition(
         (position) => {
-            const { latitude, longitude, altitude, accuracy } = position.coords;
+            const { latitude, longitude, altitude, accuracy, speed } = position.coords;
             
             // Filter out inaccurate GPS points
             if (!isAccurateGPS(accuracy)) {
@@ -424,7 +477,7 @@ function startRun() {
                 return;
             }
 
-            const coord = { lat: latitude, lng: longitude, alt: altitude || 0, accuracy };
+            const coord = { lat: latitude, lng: longitude, alt: altitude || 0, accuracy, speed };
             state.currentRun.rawCoordinates.push(coord);
 
             // Update elevation
@@ -439,6 +492,9 @@ function startRun() {
                 const distance = calculateDistance(prev.lat, prev.lng, latitude, longitude);
                 state.currentRun.distance += distance;
             }
+
+            // Update speed using GPS device speed or fallback calculation
+            updateSpeed('run', speed, latitude, longitude);
 
             // Smooth the route for display
             state.currentRun.coordinates = smoothRoute(state.currentRun.rawCoordinates);
@@ -489,7 +545,7 @@ function startWalk() {
 
     state.watchId = navigator.geolocation.watchPosition(
         (position) => {
-            const { latitude, longitude, accuracy } = position.coords;
+            const { latitude, longitude, accuracy, speed } = position.coords;
             
             // Filter out inaccurate GPS points
             if (!isAccurateGPS(accuracy)) {
@@ -497,7 +553,7 @@ function startWalk() {
                 return;
             }
 
-            const coord = { lat: latitude, lng: longitude, accuracy };
+            const coord = { lat: latitude, lng: longitude, accuracy, speed };
             state.currentWalk.rawCoordinates.push(coord);
 
             // Calculate distance
@@ -509,6 +565,9 @@ function startWalk() {
                 // Estimate steps (1 step ≈ 0.762 meters average)
                 state.currentWalk.steps += Math.round(distance * 1000 / 0.762);
             }
+
+            // Update speed using GPS device speed or fallback calculation
+            updateSpeed('walk', speed, latitude, longitude);
 
             // Smooth the route for display
             state.currentWalk.coordinates = smoothRoute(state.currentWalk.rawCoordinates);
@@ -690,7 +749,19 @@ function updateWalkDisplay() {
 }
 
 function updateWalkMetrics() {
-    const { distance, time, steps } = state.currentWalk;
+    const { distance, time, steps, currentSpeed } = state.currentWalk;
+
+    // Display current speed
+    document.getElementById('walk-speed').textContent = currentSpeed.toFixed(1);
+
+    // Calculate pace based on current speed (min/km)
+    let pace = 0;
+    if (currentSpeed > 0) {
+        pace = 60 / currentSpeed; // minutes per km
+    }
+    const paceMin = Math.floor(pace);
+    const paceSec = Math.round((pace - paceMin) * 60);
+    document.getElementById('walk-pace').textContent = `${String(paceMin).padStart(2, '0')}:${String(paceSec).padStart(2, '0')}`;
 
     // Calculate calories (simplified: ~0.04 cal per step)
     const calories = Math.round(steps * 0.04);
