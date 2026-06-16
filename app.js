@@ -36,8 +36,8 @@ const state = {
         walk: null,
     },
     markers: {
-        run: { current: null, start: null },
-        walk: { current: null, start: null },
+        run: { current: null, start: null, location: null, accuracyCircle: null },
+        walk: { current: null, start: null, location: null, accuracyCircle: null },
     },
     charts: {},
     tileLayers: {
@@ -91,6 +91,10 @@ function initializeEventListeners() {
     document.getElementById('history-date-filter').addEventListener('change', updateHistoryDisplay);
     document.getElementById('history-type-filter').addEventListener('change', updateHistoryDisplay);
     document.getElementById('clear-history-btn').addEventListener('click', clearHistory);
+
+    // My Location Buttons
+    document.getElementById('run-my-location-btn').addEventListener('click', () => showMyLocation('run'));
+    document.getElementById('walk-my-location-btn').addEventListener('click', () => showMyLocation('walk'));
 
     // Map Layer Controls
     document.querySelectorAll('.tile-layer-btn').forEach(btn => {
@@ -233,6 +237,127 @@ function switchTileLayer(mode, layer) {
     state.tileLayers[mode][layer].addTo(state.maps[mode]);
     state.currentTileLayer[mode] = layer;
 }
+
+// ==================== My Location Feature ====================
+function showMyLocation(mode) {
+    if (!navigator.geolocation) {
+        alert('Geolocation is not supported by your browser.');
+        return;
+    }
+
+    const btn = document.getElementById(`${mode}-my-location-btn`);
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
+
+    navigator.geolocation.getCurrentPosition(
+        (position) => {
+            const { latitude, longitude, accuracy } = position.coords;
+            const map = state.maps[mode];
+
+            // Center map on user location with animation
+            map.flyTo([latitude, longitude], 17, {
+                duration: 1,
+            });
+
+            // Remove old location marker if exists
+            if (state.markers[mode].location) {
+                map.removeLayer(state.markers[mode].location);
+            }
+
+            // Add new location marker
+            state.markers[mode].location = L.circleMarker([latitude, longitude], {
+                radius: 10,
+                fillColor: '#4ecdc4',
+                color: '#fff',
+                weight: 3,
+                opacity: 1,
+                fillOpacity: 0.7,
+            }).addTo(map);
+
+            // Add accuracy circle
+            if (state.markers[mode].accuracyCircle) {
+                map.removeLayer(state.markers[mode].accuracyCircle);
+            }
+
+            state.markers[mode].accuracyCircle = L.circle([latitude, longitude], {
+                radius: accuracy,
+                color: '#4ecdc4',
+                fillColor: '#4ecdc4',
+                fillOpacity: 0.1,
+                weight: 1,
+                dashArray: '5, 5',
+            }).addTo(map);
+
+            // Display coordinates
+            const coordsText = `${latitude.toFixed(6)}, ${longitude.toFixed(6)}`;
+            document.getElementById(`${mode}-location-coords`).textContent = coordsText;
+            document.getElementById(`${mode}-location-display`).style.display = 'block';
+
+            // Try to get address using reverse geocoding (optional, using free service)
+            reverseGeocode(latitude, longitude, mode);
+
+            // Reset button
+            btn.disabled = false;
+            btn.innerHTML = '<i class="fas fa-location-crosshairs"></i>';
+        },
+        (error) => {
+            console.error('Geolocation error:', error);
+            let errorMsg = 'Unable to get your location.';
+            
+            if (error.code === error.PERMISSION_DENIED) {
+                errorMsg = 'Location permission denied. Please enable location access in your browser settings.';
+            } else if (error.code === error.POSITION_UNAVAILABLE) {
+                errorMsg = 'Location information is unavailable.';
+            } else if (error.code === error.TIMEOUT) {
+                errorMsg = 'Location request timed out. Please try again.';
+            }
+            
+            alert(errorMsg);
+            
+            // Reset button
+            btn.disabled = false;
+            btn.innerHTML = '<i class="fas fa-location-crosshairs"></i>';
+        },
+        {
+            enableHighAccuracy: true,
+            timeout: 10000,
+            maximumAge: 0,
+        }
+    );
+}
+
+function reverseGeocode(latitude, longitude, mode) {
+    // Using OpenStreetMap Nominatim API (free, no key required)
+    const url = `https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}`;
+
+    fetch(url, {
+        headers: {
+            'Accept': 'application/json',
+            'User-Agent': 'FitnessTracker-App', // Required by Nominatim
+        },
+    })
+        .then(response => response.json())
+        .then(data => {
+            if (data.address) {
+                // Build address from components
+                const addressParts = [];
+                
+                if (data.address.road) addressParts.push(data.address.road);
+                if (data.address.suburb) addressParts.push(data.address.suburb);
+                if (data.address.city) addressParts.push(data.address.city);
+                if (data.address.state) addressParts.push(data.address.state);
+                if (data.address.country) addressParts.push(data.address.country);
+
+                const address = addressParts.slice(0, 3).join(', '); // Show top 3 components
+                document.getElementById(`${mode}-location-address`).textContent = address || 'Address not found';
+            }
+        })
+        .catch(error => {
+            console.log('Reverse geocoding failed:', error);
+            // Silently fail - coordinates are still displayed
+        });
+}
+
 
 // ==================== GPS Accuracy Filtering ====================
 const ACCURACY_THRESHOLD = 20; // meters - ignore points with lower accuracy

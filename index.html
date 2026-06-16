@@ -75,10 +75,17 @@
                         <!-- Map -->
                         <div class="map-wrapper">
                             <div id="run-map" class="map-container"></div>
+                            <button id="run-my-location-btn" class="my-location-btn" title="Center map on my location">
+                                <i class="fas fa-location-crosshairs"></i>
+                            </button>
                             <div class="map-info" id="run-map-info">
                                 <div class="accuracy-indicator">
                                     <i class="fas fa-location-dot"></i>
                                     <span id="run-accuracy">--</span> m accuracy
+                                </div>
+                                <div class="location-display" id="run-location-display" style="display: none;">
+                                    <div class="location-coords" id="run-location-coords"></div>
+                                    <div class="location-address" id="run-location-address"></div>
                                 </div>
                             </div>
                         </div>
@@ -149,10 +156,17 @@
                         <!-- Map -->
                         <div class="map-wrapper">
                             <div id="walk-map" class="map-container"></div>
+                            <button id="walk-my-location-btn" class="my-location-btn" title="Center map on my location">
+                                <i class="fas fa-location-crosshairs"></i>
+                            </button>
                             <div class="map-info" id="walk-map-info">
                                 <div class="accuracy-indicator">
                                     <i class="fas fa-location-dot"></i>
                                     <span id="walk-accuracy">--</span> m accuracy
+                                </div>
+                                <div class="location-display" id="walk-location-display" style="display: none;">
+                                    <div class="location-coords" id="walk-location-coords"></div>
+                                    <div class="location-address" id="walk-location-address"></div>
                                 </div>
                             </div>
                         </div>
